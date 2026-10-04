@@ -1,0 +1,47 @@
+[
+  {
+    "id": 1,
+    "title": "TCS expands its AI cloud partnership network across Asia",
+    "summary": "The IT major is building a regional delivery footprint around cloud modernization and applied AI.",
+    "source": "Market Desk",
+    "category": "Company",
+    "symbol": "TCS",
+    "publishedAt": "18 min ago"
+  },
+  {
+    "id": 2,
+    "title": "Banking stocks steady as credit growth remains resilient",
+    "summary": "Private lenders led a measured recovery in afternoon trading as investors watched loan growth data.",
+    "source": "Capital Wire",
+    "category": "Sector",
+    "symbol": "HDFCBANK",
+    "publishedAt": "42 min ago"
+  },
+  {
+    "id": 3,
+    "title": "Reliance digital services show continued subscriber momentum",
+    "summary": "Analysts highlighted improving monetization and steady retail demand in the latest channel checks.",
+    "source": "The Exchange",
+    "category": "Company",
+    "symbol": "RELIANCE",
+    "publishedAt": "1 hr ago"
+  },
+  {
+    "id": 4,
+    "title": "Markets open higher as global cues turn supportive",
+    "summary": "The Nifty and Sensex started the session in positive territory, led by technology and pharma.",
+    "source": "Street Signals",
+    "category": "Market",
+    "symbol": "NIFTY 50",
+    "publishedAt": "2 hrs ago"
+  },
+  {
+    "id": 5,
+    "title": "Healthcare names attract fresh institutional interest",
+    "summary": "Defensive positioning and a strong earnings pipeline lifted select pharmaceutical names.",
+    "source": "Market Desk",
+    "category": "Sector",
+    "symbol": "SUNPHARMA",
+    "publishedAt": "3 hrs ago"
+  }
+]
