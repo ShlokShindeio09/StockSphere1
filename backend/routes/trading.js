@@ -14,8 +14,15 @@ export async function getPortfolio(userId) {
   const map = new Map();
   for (const order of orders) {
     const p = map.get(order.symbol) || { shares: 0, invested: 0 };
-    if (order.type === "BUY") { p.shares += order.quantity; p.invested += order.total; }
-    else { p.shares -= order.quantity; p.invested -= order.total; }
+    if (order.type === "BUY") {
+      p.shares += order.quantity;
+      p.invested += order.total;
+    } else {
+      const remainingShares = p.shares - order.quantity;
+      const remainingCost = p.shares > 0 ? p.invested * (remainingShares / p.shares) : 0;
+      p.shares = remainingShares;
+      p.invested = remainingShares > 0 ? Math.max(0, Number(remainingCost.toFixed(2))) : 0;
+    }
     map.set(order.symbol, p);
   }
   const holdings = [];

@@ -295,6 +295,11 @@ button { cursor: pointer; }
 .trade-toggle button.active-buy { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); }
 .trade-toggle button.active-sell { background: hsl(var(--destructive)); color: hsl(var(--destructive-foreground)); }
 .trade-total { display: flex; justify-content: space-between; padding-top: 13px; margin-top: 13px; border-top: 1px solid hsl(var(--border)); font-family: var(--app-font-mono); font-size: 12px; }
+.holding-sell { min-width: 175px; }
+.holding-sell-controls { display: flex; align-items: center; gap: 6px; }
+.holding-sell-controls > span, .holding-sell-estimate { color: hsl(var(--muted-foreground)); font-size: 10px; white-space: nowrap; }
+.holding-sell-quantity { width: 66px; min-height: 32px; padding: 6px; }
+.holding-sell-estimate { display: block; margin-top: 4px; font-family: var(--app-font-mono); }
 .notice { padding: 10px 11px; border-left: 3px solid hsl(var(--accent)); background: hsl(var(--accent) / .13); font-size: 11px; color: hsl(var(--muted-foreground)); line-height: 1.45; }
 .modal-backdrop { position: fixed; inset: 0; background: rgba(20,30,35,.46); z-index: 30; display: grid; place-items: center; padding: 20px; }
 .modal { width: min(460px, 100%); background: hsl(var(--card)); border: 1px solid hsl(var(--border)); border-radius: 14px; box-shadow: var(--shadow-md); padding: 20px; }

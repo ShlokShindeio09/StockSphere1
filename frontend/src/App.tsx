@@ -21,6 +21,8 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import AuthPage from '@/pages/auth';
 import { clearToken, getToken, type AuthUser } from '@/auth';
+import { ApiError } from '@/api-client-react/custom-fetch';
+import { useToast } from '@/hooks/use-toast';
 
 const queryClient = new QueryClient();
 const AuthUserContext = createContext<AuthUser | null>(null);
@@ -39,6 +41,10 @@ const formatTime = (date?: string) => {
   return Number.isNaN(parsed.getTime()) ? date : parsed.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 };
 const tone = (value = 0) => value >= 0 ? 'positive' : 'negative';
+function orderErrorMessage(error: unknown) {
+  if (error instanceof ApiError && error.data && typeof error.data === 'object' && 'error' in error.data && typeof error.data.error === 'string') return error.data.error;
+  return error instanceof Error ? error.message : 'The order could not be completed.';
+}
 
 function Skeleton({ lines = 3 }: { lines?: number }) {
   return <div className="loading-grid" data-testid="loading-skeleton">{Array.from({ length: lines }).map((_, index) => <div key={index} className="skeleton loading-line" style={{ width: `${76 - index * 12}%` }} />)}</div>;
@@ -66,6 +72,8 @@ const navItems = [
 function Shell({ children }: { children: ReactNode }) {
   const [location, setLocation] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const user = useContext(AuthUserContext);
+  const profileInitial = user?.name.trim().charAt(0).toUpperCase() || 'U';
   const active = (href: string) => href === '/' ? location === '/' : location.startsWith(href);
   return <div className="app-shell">
     <aside className="sidebar" aria-label="Primary navigation">
@@ -73,7 +81,6 @@ function Shell({ children }: { children: ReactNode }) {
       <div className="eyebrow">Workspace</div>
       <nav className="nav-stack">{navItems.map(({ href, label, icon: Icon }) => <Link key={href} href={href} className={`nav-item ${active(href) ? 'active' : ''}`} data-testid={`link-nav-${label.toLowerCase().replaceAll(' ', '-')}`}><Icon className="nav-icon" /><span>{label}</span></Link>)}</nav>
       <div className="sidebar-bottom">
-        <div className="sim-card"><div className="eyebrow" style={{ padding: 0, margin: 0, color: 'hsl(var(--accent))' }}><span className="live-dot" />Simulation mode</div><p>Every order is paper-only. Learn with live-market context, never with real cash.</p></div>
         <div className="nav-stack">
           <button className="nav-item" onClick={() => setMobileOpen(!mobileOpen)} data-testid="button-help"><CircleHelp className="nav-icon" /><span>How it works</span></button>
         </div>
@@ -84,7 +91,7 @@ function Shell({ children }: { children: ReactNode }) {
       <header className="topbar">
         <button className="icon-btn mobile-menu" onClick={() => setMobileOpen(true)} data-testid="button-open-menu"><Menu size={17} /></button>
         <div className="topbar-search"><Search size={15} /><input aria-label="Search stocks" placeholder="Search symbols, companies..." onKeyDown={event => { if (event.key === 'Enter') setLocation(`/stocks?search=${encodeURIComponent(event.currentTarget.value)}`); }} data-testid="input-global-search" /></div>
-        <div className="top-actions"><button className="icon-btn" onClick={() => setLocation('/alerts')} data-testid="button-top-alerts"><Bell size={16} /></button><div className="profile"><div className="avatar">SS</div><div><div className="profile-name">StockSphere</div><div className="profile-label">Student account</div></div><button className="btn btn-ghost btn-sm" onClick={() => { clearToken(); window.location.reload(); }}>Sign out</button></div></div>
+        <div className="top-actions"><button className="icon-btn" onClick={() => setLocation('/alerts')} data-testid="button-top-alerts"><Bell size={16} /></button><div className="profile"><div className="avatar" aria-hidden="true">{profileInitial}</div><div className="profile-name">{user?.name || 'Account'}</div><button className="btn btn-ghost btn-sm" onClick={() => { clearToken(); window.location.reload(); }}>Sign out</button></div></div>
       </header>
       {children}
     </main>
@@ -192,6 +199,7 @@ function StockDetailPage() {
   const history = useGetStockHistory(symbol);
   const news = useListNews({ symbol });
   const watch = useGetWatchlist();
+  const portfolio = useGetPortfolio();
   const add = useAddToWatchlist();
   const remove = useRemoveFromWatchlist();
   const order = useCreateOrder();
@@ -209,11 +217,14 @@ function StockDetailPage() {
   const [feedback, setFeedback] = useState('');
   const isWatched = (watch.data ?? []).some(item => item.symbol === symbol);
   const stock = detail.data;
+  const ownedShares = portfolio.data?.holdings.find(holding => holding.symbol === symbol)?.shares ?? 0;
   const toggleWatch = () => (isWatched ? remove : add).mutate({ symbol }, { onSuccess: data => { qc.setQueryData(getGetWatchlistQueryKey(), data); setFeedback(isWatched ? 'Removed from watchlist' : 'Added to watchlist'); } });
   const placeOrder = () => {
     const numericQuantity = Number(quantity);
-    if (!numericQuantity || numericQuantity < 1) { setFeedback('Enter at least one share'); return; }
-    order.mutate({ data: { symbol, type: side === 'BUY' ? OrderInputType.BUY : OrderInputType.SELL, quantity: numericQuantity } }, { onSuccess: result => { setFeedback(`${result.type === 'BUY' ? 'Buy' : 'Sell'} order placed for ${result.quantity} ${result.symbol}`); void qc.invalidateQueries({ queryKey: getGetPortfolioQueryKey() }); void qc.invalidateQueries({ queryKey: getListOrdersQueryKey() }); }, onError: () => setFeedback('Order could not be completed. Check your paper balance and position.') });
+    if (!Number.isSafeInteger(numericQuantity) || numericQuantity < 1) { setFeedback('Enter a whole-share quantity of at least 1.'); return; }
+    if (side === 'BUY' && stock && numericQuantity * stock.price > (portfolio.data?.cash ?? 0)) { setFeedback(`Not enough cash. Available: ${money(portfolio.data?.cash)}.`); return; }
+    if (side === 'SELL' && numericQuantity > ownedShares) { setFeedback(`You can sell up to ${ownedShares} ${symbol} shares from your portfolio.`); return; }
+    order.mutate({ data: { symbol, type: side === 'BUY' ? OrderInputType.BUY : OrderInputType.SELL, quantity: numericQuantity } }, { onSuccess: result => { setFeedback(`${result.type} filled: ${result.quantity} ${result.symbol} at ${money(result.price)} per share; ${money(result.total)} ${result.type === 'BUY' ? 'used' : 'returned to cash'}.`); void qc.invalidateQueries({ queryKey: getGetPortfolioQueryKey() }); void qc.invalidateQueries({ queryKey: getListOrdersQueryKey() }); }, onError: error => setFeedback(orderErrorMessage(error)) });
   };
   return <div className="page fade-in"><QueryState loading={detail.isLoading} error={detail.error} retry={() => void detail.refetch()}>{stock && <><div className="detail-hero"><div><div className="detail-symbol">{stock.symbol} · {stock.sector}</div><h1 className="detail-name">{stock.name}</h1><div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}><span className="detail-price">{money(stock.price)}</span><span className={`chip ${stock.changePercent >= 0 ? 'chip-green' : 'chip-red'}`}>{signed(stock.change)} · {signed(stock.changePercent)}%</span></div></div><div className="detail-actions"><button className="btn btn-secondary" onClick={toggleWatch} data-testid="button-detail-watch">{isWatched ? <Star size={14} fill="currentColor" /> : <StarOff size={14} />}{isWatched ? 'Watching' : 'Watch'}</button><Link className="btn btn-ghost" href="/stocks" data-testid="link-back-explorer"><ChevronRight size={14} style={{ transform: 'rotate(180deg)' }} /> Explorer</Link></div></div>{feedback && <div className="toast-inline" data-testid="status-detail-feedback">{feedback}</div>}<div className="grid-2"><div className="card card-pad"><div className="section-head"><div><div className="eyebrow">Price history</div><h2 className="section-title" style={{ marginTop: 5 }}>A wider view</h2></div><div className="range-tabs">{['1D', '1W', '1M', '1Y'].map(item => <button className={`range-tab ${range === item ? 'active' : ''}`} onClick={() => setRange(item)} key={item} data-testid={`button-range-${item}`}>{item}</button>)}</div></div><QueryState loading={history.isLoading} error={history.error} retry={() => void history.refetch()}><Chart points={visibleHistory} /></QueryState></div><div className="card trade-panel"><div className="eyebrow">Practice order</div><h2 className="section-title" style={{ margin: '7px 0 16px' }}>Build a position</h2><div className="trade-toggle"><button className={side === 'BUY' ? 'active-buy' : ''} onClick={() => setSide('BUY')} data-testid="button-order-buy">Buy</button><button className={side === 'SELL' ? 'active-sell' : ''} onClick={() => setSide('SELL')} data-testid="button-order-sell">Sell</button></div><label className="field-label" htmlFor="order-quantity">Quantity</label><input id="order-quantity" className="input" type="number" min="1" value={quantity} onChange={event => setQuantity(event.target.value)} data-testid="input-order-quantity" /><div className="trade-total"><span>Estimated value</span><span>{money(stock.price * Number(quantity || 0))}</span></div><button className={`btn ${side === 'BUY' ? 'btn-primary' : 'btn-danger'}`} style={{ width: '100%', marginTop: 15 }} onClick={placeOrder} disabled={order.isPending} data-testid="button-submit-order">{order.isPending ? 'Submitting…' : `${side === 'BUY' ? 'Buy' : 'Sell'} ${stock.symbol}`}</button><div className="notice" style={{ marginTop: 15 }}><ShieldCheck size={13} style={{ verticalAlign: 'middle', marginRight: 5 }} />Paper order only. Nothing here touches a bank account.</div></div></div><div className="card fundamentals" style={{ marginTop: 16 }}>{[['52W high', money(stock.high52)], ['52W low', money(stock.low52)], ['P / E ratio', stock.peRatio.toFixed(1)], ['Dividend yield', `${stock.dividendYield.toFixed(2)}%`]].map(([label, value]) => <div className="fundamental" key={label}><div className="metric-label">{label}</div><div className="fund-value">{value}</div></div>)}</div><div className="split-grid" style={{ marginTop: 16 }}><div className="card card-pad"><div className="eyebrow">About the company</div><p className="page-subtitle" style={{ color: 'hsl(var(--foreground))', marginTop: 9 }}>{stock.description}</p></div><div className="card card-pad"><SectionTitle title="Related news" action="See all" href="/news" /><QueryState loading={news.isLoading} error={news.error} retry={() => void news.refetch()}><div className="news-list">{(news.data ?? []).slice(0, 3).map(item => <NewsRow item={item} key={item.id} />)}</div>{!news.data?.length && <div className="empty">No related headlines right now.</div>}</QueryState></div></div></>}</QueryState></div>;
 }
@@ -227,9 +238,38 @@ function PortfolioPage() {
   return <div className="page fade-in"><div className="page-heading"><div><div className="eyebrow">Paper account · INR</div><h1 className="page-title">Your portfolio</h1><p className="page-subtitle">See what your decisions look like when the stakes are safely simulated.</p></div><Link href="/stocks" className="btn btn-primary" data-testid="link-portfolio-trade"><Plus size={14} /> Find a trade</Link></div><QueryState loading={portfolio.isLoading} error={portfolio.error} retry={() => void portfolio.refetch()}><div className="grid-4" style={{ marginBottom: 16 }}><div className="card metric-card"><div className="metric-label">Total value</div><div className="metric-value">{money(portfolio.data?.value)}</div><div className="metric-meta">Cash + invested</div></div><div className="card metric-card"><div className="metric-label">Invested</div><div className="metric-value">{money(portfolio.data?.invested)}</div><div className="metric-meta">{holdings.length} open positions</div></div><div className="card metric-card"><div className="metric-label">Cash available</div><div className="metric-value">{money(portfolio.data?.cash)}</div><div className="metric-meta">Unallocated</div></div><div className="card metric-card"><div className="metric-label">Total P / L</div><div className={`metric-value ${tone(portfolio.data?.profitLoss)}`}>{signed(portfolio.data?.profitLossPercent)}%</div><div className={`metric-meta ${tone(portfolio.data?.profitLoss)}`}>{money(portfolio.data?.profitLoss)}</div></div></div><div className="split-grid"><div className="card card-pad"><div className="section-head"><div><div className="eyebrow">Positions</div><h2 className="section-title" style={{ marginTop: 5 }}>Holdings & activity</h2></div><div className="range-tabs"><button className={`range-tab ${tab === 'holdings' ? 'active' : ''}`} onClick={() => setTab('holdings')} data-testid="button-tab-holdings">Holdings</button><button className={`range-tab ${tab === 'orders' ? 'active' : ''}`} onClick={() => setTab('orders')} data-testid="button-tab-orders">Orders</button></div></div>{tab === 'holdings' ? <HoldingsTable holdings={holdings} /> : <OrdersTable orders={orders.data ?? []} loading={orders.isLoading} error={orders.error} retry={() => void orders.refetch()} />}</div><div className="card card-pad"><SectionTitle title="Allocation" />{holdings.length ? <div className="allocation">{holdings.map((holding, index) => <div className="allocation-row" key={holding.symbol}><span className="font-mono">{holding.symbol}</span><div className="allocation-bar"><div className="allocation-fill" style={{ width: `${Math.max(4, holding.value / value * 100)}%`, background: `hsl(var(--chart-${(index % 5) + 1}))` }} /></div><span className="font-mono" style={{ textAlign: 'right' }}>{(holding.value / value * 100).toFixed(1)}%</span></div>)}</div> : <div className="empty"><BriefcaseBusiness size={23} />Build your first position to see allocation.</div>}</div></div></QueryState><div className="footer-note"><ShieldCheck size={13} /> This portfolio is simulated for learning. Past performance in a practice account has no predictive value.</div></div>;
 }
 
+function SellHoldingAction({ holding }: { holding: Portfolio['holdings'][number] }) {
+  const [quantity, setQuantity] = useState('1');
+  const order = useCreateOrder();
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const numericQuantity = Number(quantity);
+  const estimatedProceeds = numericQuantity * holding.currentPrice;
+  const submit = () => {
+    if (!Number.isSafeInteger(numericQuantity) || numericQuantity < 1) {
+      toast({ title: 'Enter a whole-share quantity of at least 1.', variant: 'destructive' });
+      return;
+    }
+    if (numericQuantity > holding.shares) {
+      toast({ title: `You own only ${holding.shares} ${holding.symbol} shares.`, variant: 'destructive' });
+      return;
+    }
+    order.mutate({ data: { symbol: holding.symbol, type: OrderInputType.SELL, quantity: numericQuantity } }, {
+      onSuccess: result => {
+        toast({ title: 'Sell order completed', description: `${result.quantity} ${result.symbol} at ${money(result.price)} each. ${money(result.total)} returned to cash.` });
+        void qc.invalidateQueries({ queryKey: getGetPortfolioQueryKey() });
+        void qc.invalidateQueries({ queryKey: getListOrdersQueryKey() });
+      },
+      onError: error => toast({ title: 'Sell order failed', description: orderErrorMessage(error), variant: 'destructive' }),
+    });
+  };
+
+  return <div className="holding-sell"><div><div className="holding-sell-controls"><input className="input holding-sell-quantity" type="number" min="1" max={holding.shares} step="1" value={quantity} onChange={event => setQuantity(event.target.value)} aria-label={`Shares to sell for ${holding.symbol}`} /><span>of {holding.shares}</span><button className="btn btn-danger btn-sm" onClick={submit} disabled={order.isPending} aria-label={`Sell shares of ${holding.symbol}`}>{order.isPending ? 'Selling…' : 'Sell'}</button></div><span className="holding-sell-estimate">Est. proceeds {money(estimatedProceeds || 0)}</span></div></div>;
+}
+
 function HoldingsTable({ holdings }: { holdings: Portfolio['holdings'] }) {
   if (!holdings.length) return <div className="empty"><BriefcaseBusiness size={23} /><div>No open positions.</div><p>Your paper cash is waiting for an idea.</p><Link href="/stocks" className="btn btn-secondary btn-sm" data-testid="link-empty-portfolio">Explore stocks</Link></div>;
-  return <div className="table-wrap"><table className="data-table"><thead><tr><th>Position</th><th>Shares</th><th>Avg. price</th><th>Value</th><th>P / L</th></tr></thead><tbody>{holdings.map(holding => <tr key={holding.symbol}><td><Link href={`/stocks/${holding.symbol}`} style={{ textDecoration: 'none', color: 'inherit' }} data-testid={`link-holding-${holding.symbol}`}><div className="stock-symbol">{holding.symbol}</div><div className="stock-company">{holding.name}</div></Link></td><td className="font-mono">{holding.shares}</td><td className="font-mono">{money(holding.averagePrice)}</td><td className="font-mono">{money(holding.value)}</td><td><span className={`chip ${holding.profitLoss >= 0 ? 'chip-green' : 'chip-red'}`}>{signed(holding.profitLossPercent)}%</span></td></tr>)}</tbody></table></div>;
+  return <div className="table-wrap"><table className="data-table"><thead><tr><th>Position</th><th>Shares</th><th>Avg. price</th><th>Value</th><th>P / L</th><th>Sell</th></tr></thead><tbody>{holdings.map(holding => <tr key={holding.symbol}><td><Link href={`/stocks/${holding.symbol}`} style={{ textDecoration: 'none', color: 'inherit' }} data-testid={`link-holding-${holding.symbol}`}><div className="stock-symbol">{holding.symbol}</div><div className="stock-company">{holding.name}</div></Link></td><td className="font-mono">{holding.shares}</td><td className="font-mono">{money(holding.averagePrice)}</td><td className="font-mono">{money(holding.value)}</td><td><span className={`chip ${holding.profitLoss >= 0 ? 'chip-green' : 'chip-red'}`}>{signed(holding.profitLossPercent)}%</span></td><td><SellHoldingAction holding={holding} /></td></tr>)}</tbody></table></div>;
 }
 
 function OrdersTable({ orders, loading, error, retry }: { orders: Array<{ id: number; symbol: string; name: string; type: string; quantity: number; price: number; total: number; createdAt: string }>; loading: boolean; error: unknown; retry: () => void }) {

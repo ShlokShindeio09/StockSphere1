@@ -5,8 +5,8 @@ import News from "./models/News.js";
 import stocks from "./data/stocks.json" with { type: "json" };
 import news from "./data/news.json" with { type: "json" };
 
-if (!process.env.MONGODB_URI?.startsWith("mongodb+srv://")) {
-  throw new Error("Set MONGODB_URI to your MongoDB Atlas connection string before seeding market data");
+if (!process.env.MONGODB_URI) {
+  throw new Error("Set MONGODB_URI before seeding market data");
 }
 
 await mongoose.connect(process.env.MONGODB_URI, { serverSelectionTimeoutMS: 10000 });
